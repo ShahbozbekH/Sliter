@@ -1,7 +1,20 @@
 #include "network.h"
 #include <bcc/proto.h>
 #include <linux/pkt_cls.h>
+#include <linux/sched.h>
+#include <uapi/linux/stat.h>
+#include <uapi/linux/ptrace.h>
+#include <linux/file.h>
+#include <linux/fs.h>
+#include <linux/stat.h>
+#include <linux/socket.h>
 #include "packet.h"
+
+
+struct addr_info_t {
+	struct sockaddr *addr;
+	size_t *addrlen;
+};
 
 #define CONNOUT 10000000000000
 #define IDLEOUT 10000000000000
@@ -10,7 +23,7 @@
 BPF_HASH(connection, u32);
 BPF_HASH(idle, u32);
 
-BERP_PERF_OUTPUT(httpOut);
+BPF_PERF_OUTPUT(httpOut);
 
 struct httpData_t{
 	struct attr_t{
@@ -23,7 +36,7 @@ struct httpData_t{
 };
 
 const int kEventTypeSyscallAddrEvent = 1;
-const int kEventTypeSyscallWriteEvent = 2;
+const int kEventTypeSyscallReadEvent = 2;
 const int kEventTypeSyscallCloseEvent = 3;
 
 BPF_PERCPU_ARRAY(write_buffer_heap, struct httpData_t, 1);
@@ -46,7 +59,7 @@ int xdp(struct xdp_md *ctx) {
         	return XDP_PASS;
   	}
 
-	if (port != 80) {
+	if (port != 8080) {
 		return XDP_PASS;
 	}
 
@@ -81,11 +94,8 @@ int xdp(struct xdp_md *ctx) {
 int http_accept_entry(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen, int flags){
 	u64 id = bpf_get_current_pid_tgid();
 	u32 pid = id >> 32;
-	if (pid != $PID) {
-		return 0;
-	}
 
-	struct addr_info_t* addr_info;
+	struct addr_info_t addr_info;
 	addr_info.addr = addr;
 	addr_info.addrlen = addrlen;
 	active_sock_addr.update(&id, &addr_info);
@@ -96,11 +106,8 @@ int http_accept_entry(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, si
 int http_accept_ret(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen, int flags) {
 	u64 id = bpf_get_current_pid_tgid();
 	u32 pid = id >> 32;
-	if (pid != $PID) {
-		return 0;
-	}
 
-	struct addr_info_t* addr_info = active_sock_addr_lookup(&id);
+	struct addr_info_t* addr_info = active_sock_addr.lookup(&id);
 	if (addr_info == NULL) {
 		goto done;
 	}
@@ -124,9 +131,9 @@ int http_accept_ret(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size
 	event->attr.event_type = kEventTypeSyscallAddrEvent;
 	event->attr.fd = fd;
 	event->attr.msg_size = buf_size;
-	evnt->attr.bytes = buf.size;
-	unsigned int size_to_submit =sizeof(event->attr_ + buf_size;
-	syscall_write_events.perf_submit(ctx, event, size_to_submit);
+	event->attr.bytes = buf_size;
+	unsigned int size_to_submit = sizeof(event->attr) + buf_size;
+	httpOut.perf_submit(ctx, event, size_to_submit);
 
 	done:
 		active_sock_addr.delete(&id);
@@ -137,16 +144,34 @@ int http_accept_ret(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size
 int http_read(struct pt_regs *ctx, int fd, const void* buf, size_t count){
 	int zero = 0;
 	struct httpData_t *event = write_buffer_heap.lookup(&zero);
+	if (event == NULL) {
+		return 0;
+	}
+
+	u64 id = bpf_get_current_pid_tgid();
+	u32 pid = id >> 32;
+
+	if (active_fds.lookup(&fd) == NULL) {
+		return 0;
+	}
+
+	event->attr.fd = fd;
+	event-> attr.bytes = count;
+	size_t buf_size = count < sizeof(event->msg) ? count : sizeof(event->msg);
+	bpf_probe_read(&event->msg, buf_size, (void*) buf);
+	event->attr.msg_size = buf_size;
+
+	unsigned int size_to_submit = sizeof(event->attr) + buf_size;
+	event->attr.event_type = kEventTypeSyscallReadEvent;
+	httpOut.perf_submit(ctx, event, size_to_submit);
 
 
+	return 0;
 }
 
 int http_close(struct pt_regs *ctx, int fd){
 	u64 id = bpf_get_current_pid_tgid();
 	u32 pid = id >> 32;
-	if (pid != $PID) {
-		return 0;
-	}
 
 	int zero = 0;
 	struct httpData_t *event = write_buffer_heap.lookup(&zero);
@@ -158,7 +183,7 @@ int http_close(struct pt_regs *ctx, int fd){
 	event->attr.fd = fd;
 	event->attr.bytes = 0;
 	event->attr.msg_size = 0;
-	syscall_write_events.perf_submit(ctx, event, sizeof(event->attr));
+	httpOut.perf_submit(ctx, event, sizeof(event->attr));
 
 	active_fds.delete(&fd);
 	return 0;
