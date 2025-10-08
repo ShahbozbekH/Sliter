@@ -62,7 +62,7 @@ int xdp(struct xdp_md *ctx) {
 
 
 
-int http_accept(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen, int flags){
+int http_accept(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen){
 
 
 	return 0;
