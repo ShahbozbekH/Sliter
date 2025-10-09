@@ -1,47 +1,34 @@
 #include "network.h"
 #include <bcc/proto.h>
-#include <linux/pkt_cls.h>
-#include <linux/sched.h>
-#include <uapi/linux/stat.h>
+#include <net/sock.h>
 #include <uapi/linux/ptrace.h>
-#include <linux/file.h>
-#include <linux/fs.h>
-#include <linux/stat.h>
-#include <linux/socket.h>
 #include "packet.h"
 
 
-struct addr_info_t {
-	struct sockaddr *addr;
-	size_t *addrlen;
-};
 
+#define IP_TCP 6
+#define ETH_LEN 14
 #define CONNOUT 10000000000000
 #define IDLEOUT 10000000000000
 #define MAX_MSG_SIZE 1024
 
+struct Key {
+	u32 src_ip;
+	u32 dst_ip;
+	unsigned short src_port;
+	unsigned short dst_port;
+};
+
+struct Leaf {
+	int timestamp;
+};
+
+
+BPF_HASH(sessions, struct Key, struct Leaf);
 BPF_HASH(connection, u32);
 BPF_HASH(idle, u32);
 
-BPF_PERF_OUTPUT(httpOut);
 
-struct httpData_t{
-	struct attr_t{
-		int event_type;
-		int fd;
-		int bytes;
-		int msg_size;
-	} attr;
-	char msg[MAX_MSG_SIZE];
-};
-
-const int kEventTypeSyscallAddrEvent = 1;
-const int kEventTypeSyscallReadEvent = 2;
-const int kEventTypeSyscallCloseEvent = 3;
-
-BPF_PERCPU_ARRAY(write_buffer_heap, struct httpData_t, 1);
-BPF_HASH(active_fds, int, bool);
-BPF_HASH(active_sock_addr, u64, struct addr_info_t);
 
 
 int xdp(struct xdp_md *ctx) {
@@ -89,103 +76,96 @@ int xdp(struct xdp_md *ctx) {
 	return XDP_PASS;
 }
 
+//TC:
+
+int http_filter(struct __sk_buff *skb){
+	u8 * cursor = 0;
+
+	struct ethernet_t *ethernet = cursor_advance(cursor, sizeof(*ethernet));
+	if (!(ethernet->type == 0x800)) {
+		return -1;
+	}
+
+	struct ip_t *ip = cursor_advance(cursor, sizeof(*ip));
+	if (ip->nextp != IP_TCP) {
+		return -1;
+	}
 
 
-int http_accept_entry(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen, int flags){
-	u64 id = bpf_get_current_pid_tgid();
-	u32 pid = id >> 32;
+	u32 tcp_header_length = 0;
+	u32 ip_header_length = 0;
+	u32 payload_offset = 0;
+	u32 payload_length = 0;
+	struct Key key;
+	struct Leaf zero = {0};
 
-	struct addr_info_t addr_info;
-	addr_info.addr = addr;
-	addr_info.addrlen = addrlen;
-	active_sock_addr.update(&id, &addr_info);
+	struct tcp_t *tcp = cursor_advance(cursor, sizeof(*tcp));
+
+	key.dst_ip = ip->dst;
+	key.src_ip = ip->src;
+	key.dst_port = tcp->dst_port;
+	key.src_port =tcp->src_port;
+
+	ip_header_length = ip->hlen << 2;
+	tcp_header_length = tcp->offset << 2;
+
+	payload_offset = ETH_HLEN  + ip_header_length + tcp_header_length;
+	payload_length = ip->tlen - ip_header_length - tcp_header_length;
+
+
+	if (payload_length < 7) {
+		return -1;
+	}
+
+
+	unsigned long p[7];
+	int i = 0;
+	int j = 0;
+	for (i = payload_offset ; i < (payload_offset + 7) ; i++) {
+		p[j] = load_byte(skb , i);
+		j++;
+	}
+
+	//find a match with an HTTP message
+	//HTTP
+	if ((p[0] == 'H') && (p[1] == 'T') && (p[2] == 'T') && (p[3] == 'P')) {
+		goto HTTP_MATCH;
+	}
+	//GET
+	if ((p[0] == 'G') && (p[1] == 'E') && (p[2] == 'T')) {
+		goto HTTP_MATCH;
+	}
+	//POST
+	if ((p[0] == 'P') && (p[1] == 'O') && (p[2] == 'S') && (p[3] == 'T')) {
+		goto HTTP_MATCH;
+	}
+	//PUT
+	if ((p[0] == 'P') && (p[1] == 'U') && (p[2] == 'T')) {
+		goto HTTP_MATCH;
+	}
+	//DELETE
+	if ((p[0] == 'D') && (p[1] == 'E') && (p[2] == 'L') && (p[3] == 'E') && (p[4] == 'T') && (p[5] == 'E')) {
+		goto HTTP_MATCH;
+	}
+	//HEAD
+	if ((p[0] == 'H') && (p[1] == 'E') && (p[2] == 'A') && (p[3] == 'D')) {
+		goto HTTP_MATCH;
+	}
+
+	struct Leaf * lookup_leaf = sessions.lookup(&key);
+	if(lookup_leaf) {
+		//send packet to userspace
+		return 0;
+	}
+	return -1;
+
+	HTTP_MATCH:
+	//if not already present, insert into map <Key, Leaf>
+		sessions.lookup_or_init(&key,&zero);
+
 
 	return 0;
 }
 
-int http_accept_ret(struct pt_regs *ctx, int sockfd, struct sockaddr *addr, size_t *addrlen, int flags) {
-	u64 id = bpf_get_current_pid_tgid();
-	u32 pid = id >> 32;
 
-	struct addr_info_t* addr_info = active_sock_addr.lookup(&id);
-	if (addr_info == NULL) {
-		goto done;
-	}
-
-	int fd = PT_REGS_RC(ctx);
-	if (fd < 0) {
-		goto done;
-	}
-	bool t = true;
-	active_fds.update(&fd, &t);
-
-	int zero = 0;
-	struct httpData_t *event = write_buffer_heap.lookup(&zero);
-	if (event == 0) {
-		goto done;
-	}
-
-	u64 addr_size = *(addr_info->addrlen);
-	size_t buf_size = addr_size < sizeof(event->msg) ? addr_size : sizeof(event->msg);
-	bpf_probe_read(&event->msg, buf_size, addr_info->addr);
-	event->attr.event_type = kEventTypeSyscallAddrEvent;
-	event->attr.fd = fd;
-	event->attr.msg_size = buf_size;
-	event->attr.bytes = buf_size;
-	unsigned int size_to_submit = sizeof(event->attr) + buf_size;
-	httpOut.perf_submit(ctx, event, size_to_submit);
-
-	done:
-		active_sock_addr.delete(&id);
-		return 0;
-}
-
-
-int http_read(struct pt_regs *ctx, int fd, const void* buf, size_t count){
-	int zero = 0;
-	struct httpData_t *event = write_buffer_heap.lookup(&zero);
-	if (event == NULL) {
-		return 0;
-	}
-
-	u64 id = bpf_get_current_pid_tgid();
-	u32 pid = id >> 32;
-
-	if (active_fds.lookup(&fd) == NULL) {
-		return 0;
-	}
-
-	event->attr.fd = fd;
-	event-> attr.bytes = count;
-	size_t buf_size = count < sizeof(event->msg) ? count : sizeof(event->msg);
-	bpf_probe_read(&event->msg, buf_size, (void*) buf);
-	event->attr.msg_size = buf_size;
-
-	unsigned int size_to_submit = sizeof(event->attr) + buf_size;
-	event->attr.event_type = kEventTypeSyscallReadEvent;
-	httpOut.perf_submit(ctx, event, size_to_submit);
-
-
-	return 0;
-}
-
-int http_close(struct pt_regs *ctx, int fd){
-	u64 id = bpf_get_current_pid_tgid();
-	u32 pid = id >> 32;
-
-	int zero = 0;
-	struct httpData_t *event = write_buffer_heap.lookup(&zero);
-	if (event == NULL) {
-		return 0;
-	}
-
-	event->attr.event_type = kEventTypeSyscallCloseEvent;
-	event->attr.fd = fd;
-	event->attr.bytes = 0;
-	event->attr.msg_size = 0;
-	httpOut.perf_submit(ctx, event, sizeof(event->attr));
-
-	active_fds.delete(&fd);
-	return 0;
-}
 
