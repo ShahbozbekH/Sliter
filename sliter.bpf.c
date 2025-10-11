@@ -7,11 +7,12 @@
 
 #define IP_TCP 6
 #define ETH_LEN 14
-#define CONNOUT 10000000000000
-#define IDLEOUT 10000000000000
+#define CONNOUT 5
+#define IDLEOUT 5
 #define MAX_MSG_SIZE 1024
 #define ETH_P_IP        0x0800
-
+#define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
+#define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 
 struct Key {
 	u32 src_ip;
@@ -60,6 +61,11 @@ int xdp(struct xdp_md *ctx) {
 	key.src_ip = ip->saddr;
 	key.dst_port = bpf_ntohs(tcp->source);
 	key.src_port = bpf_ntohs(tcp->dest);
+
+	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
+	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
+	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
+	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
 	payload_offset = ETH_HLEN + sizeof(struct iphdr) + sizeof(struct tcphdr);
 	payload_length = ip->tot_len - sizeof(struct iphdr) - sizeof(struct tcphdr);
