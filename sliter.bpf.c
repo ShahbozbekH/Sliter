@@ -10,6 +10,7 @@
 #define CONNOUT 10000000000000
 #define IDLEOUT 10000000000000
 #define MAX_MSG_SIZE 1024
+#define ETH_P_IP        0x0800
 
 
 struct Key {
@@ -40,32 +41,28 @@ int xdp(struct xdp_md *ctx) {
 
 
 	struct ethhdr *ethernet = data;
-	if (data + sizeof(struct ethhdr) <= data_end)
+	if (data + sizeof(struct ethhdr) > data_end)
 		return XDP_PASS;
-	if (bpf_ntohs(ethernet->h_proto) != 0x0800){
+	if (bpf_ntohs(ethernet->h_proto) != ETH_P_IP){
 		return XDP_PASS;
 	}
 	struct iphdr *ip = data + sizeof(*ethernet);
-	if (data + sizeof(*ethernet) + sizeof(struct iphdr) <= data_end)
+	if (data + sizeof(*ethernet) + sizeof(struct iphdr) > data_end)
 		return XDP_PASS;
 	if (ip->protocol != IPPROTO_TCP){
 		return XDP_PASS;
 	}
 	struct tcphdr *tcp = data + sizeof(*ethernet) + sizeof(*ip);
-	if (data + sizeof(*ethernet) + sizeof(*ip) + sizeof(struct tcphdr) <= data_end)
+	if (data + sizeof(*ethernet) + sizeof(*ip) + sizeof(struct tcphdr) > data_end)
 		return XDP_PASS;
-
 
 	key.dst_ip = ip->daddr;
 	key.src_ip = ip->saddr;
-	key.dst_port = bpf_ntohs(tcp->dest);
-	key.src_port = bpf_ntohs(tcp->source);
+	key.dst_port = bpf_ntohs(tcp->source);
+	key.src_port = bpf_ntohs(tcp->dest);
 
-	ip_header_length = ip->hlen << 2;
-	tcp_header_length = tcp->offset << 2;
-
-	payload_offset = ETH_HLEN + ip_header_length + tcp_header_length;
-	payload_length = ip->tlen - ip_header_length - tcp_header_length;
+	payload_offset = ETH_HLEN + sizeof(struct iphdr) + sizeof(struct tcphdr);
+	payload_length = ip->tot_len - sizeof(struct iphdr) - sizeof(struct tcphdr);
 
 	if (payload_length < 7){
 		return XDP_PASS;
