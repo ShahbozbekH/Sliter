@@ -14,8 +14,6 @@
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 
-
-
 struct Key {
 	u32 src_ip;
 	u32 dst_ip;
@@ -29,8 +27,8 @@ struct Leaf {
 };
 
 
-BPF_HASH(sessions, struct Key, struct Leaf);
-
+//BPF_HASH(sessions, struct Key, struct Leaf);
+BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
 
 
 int xdp(struct xdp_md *ctx) {
@@ -71,12 +69,12 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
 	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
-	payload_offset = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr) + 12;
+	payload_offset = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr);
 	payload_length = (data_end - data) - payload_offset;
 
-	bpf_trace_printk("TOT LEN: %ld\n", ip->tot_len);
+	bpf_trace_printk("TOT LEN: %ld\n", data_end - data);
 	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
-	bpf_trace_printk("PAYLOAD LEN: %ld\n", data_end - data);
+	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
 	if (payload_length < 26){
 		return XDP_PASS;
@@ -100,8 +98,17 @@ int xdp(struct xdp_md *ctx) {
 		sessions.update(&key, &leaf);
 	}
 	//Parse payload by loading bytes
-	unsigned char payload[82];
-	bpf_xdp_load_bytes(ctx, payload_offset, payload, 82);
+	/*unsigned char pay[1];
+	*/
+
+	unsigned char payload[81];
+	bpf_xdp_load_bytes(ctx, payload_offset, payload, 81);
+	for (int i=0;i<81;i++){
+		if (payload[i] == '\r')
+			payload[i] = 'r';
+		else if (payload[i] == '\n')
+			payload[i] = 'n';
+	}
 	bpf_trace_printk("STRING: %s", payload);
 
 
