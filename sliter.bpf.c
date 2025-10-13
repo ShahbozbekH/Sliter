@@ -14,6 +14,8 @@
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 
+
+
 struct Key {
 	u32 src_ip;
 	u32 dst_ip;
@@ -28,6 +30,8 @@ struct Leaf {
 
 
 BPF_HASH(sessions, struct Key, struct Leaf);
+
+
 
 int xdp(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
@@ -67,10 +71,14 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
 	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
-	payload_offset = ETH_HLEN + sizeof(struct iphdr) + sizeof(struct tcphdr);
-	payload_length = ip->tot_len - sizeof(struct iphdr) - sizeof(struct tcphdr);
+	payload_offset = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr) + 12;
+	payload_length = (data_end - data) - payload_offset;
 
-	if (payload_length < 7){
+	bpf_trace_printk("TOT LEN: %ld\n", ip->tot_len);
+	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
+	bpf_trace_printk("PAYLOAD LEN: %ld\n", data_end - data);
+
+	if (payload_length < 26){
 		return XDP_PASS;
 	}
 
@@ -91,6 +99,11 @@ int xdp(struct xdp_md *ctx) {
 		leaf.first_comm = commCheck->first_comm;
 		sessions.update(&key, &leaf);
 	}
+	//Parse payload by loading bytes
+	unsigned char payload[82];
+	bpf_xdp_load_bytes(ctx, payload_offset, payload, 82);
+	bpf_trace_printk("STRING: %s", payload);
+
 
 	bpf_trace_printk("GOT PORT 80 PACKET");
 
