@@ -29,6 +29,7 @@ struct Leaf {
 
 //BPF_HASH(sessions, struct Key, struct Leaf);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
+BPF_RINGBUF_OUTPUT(payload, 1);
 
 
 int xdp(struct xdp_md *ctx) {
@@ -41,6 +42,7 @@ int xdp(struct xdp_md *ctx) {
 	unsigned long long commTime = bpf_ktime_get_ns();
 	struct Key key;
 	struct Leaf leaf;
+	struct bpf_dynptr ptr;
 
 
 	struct ethhdr *ethernet = data;
@@ -59,6 +61,9 @@ int xdp(struct xdp_md *ctx) {
 	if (data + sizeof(*ethernet) + sizeof(*ip) + sizeof(struct tcphdr) > data_end)
 		return XDP_PASS;
 
+	unsigned int iHL = 0;
+	bpf_xdp_load_bytes(ctx, ETH_LEN, &iHL, 1);
+	u32 ip_hl = (iHL & 0xF) * 4;
 	key.dst_ip = ip->daddr;
 	key.src_ip = ip->saddr;
 	key.dst_port = bpf_ntohs(tcp->source);
@@ -69,14 +74,25 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
 	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
-	payload_offset = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr);
+	u32 tcp_offset = ip_hl + ETH_LEN + 12;
+	//u32 tcpOff = int(tcp_offset);
+	unsigned int data_offset = 0;
+	bpf_xdp_load_bytes(ctx, tcp_offset, &data_offset, 1);
+	u32 tcp_hl = ((data_offset >> 4) & 0xF) * 4;
+	/*
+	for (int i=4;i<8;i++){
+		dOff_bits[i] = (data_offset[0] & (1 << i)) >> i;
+		bpf_trace_printk("DOFF BITS: %d", dOff_bits[i]);
+	}*/
+
+	payload_offset = ETH_LEN + ip_hl + tcp_hl;
 	payload_length = (data_end - data) - payload_offset;
 
 	bpf_trace_printk("TOT LEN: %ld\n", data_end - data);
 	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
 	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
-	if (payload_length < 26){
+	if (payload_length == 0){
 		return XDP_PASS;
 	}
 
@@ -101,7 +117,7 @@ int xdp(struct xdp_md *ctx) {
 	/*unsigned char pay[1];
 	*/
 
-	unsigned char payload[81];
+	unsigned char payload[150];
 	bpf_xdp_load_bytes(ctx, payload_offset, payload, 81);
 	for (int i=0;i<81;i++){
 		if (payload[i] == '\r')
@@ -110,7 +126,6 @@ int xdp(struct xdp_md *ctx) {
 			payload[i] = 'n';
 	}
 	bpf_trace_printk("STRING: %s", payload);
-
 
 	bpf_trace_printk("GOT PORT 80 PACKET");
 
