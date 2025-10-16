@@ -26,11 +26,7 @@ struct Leaf {
 	unsigned long long first_comm;
 };
 
-
-//BPF_HASH(sessions, struct Key, struct Leaf);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
-BPF_RINGBUF_OUTPUT(payload, 1);
-
 
 int xdp(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
@@ -40,9 +36,8 @@ int xdp(struct xdp_md *ctx) {
 	u32 payload_offset = 0;
 	u32 payload_length = 0;
 	unsigned long long commTime = bpf_ktime_get_ns();
-	struct Key key;
-	struct Leaf leaf;
-	struct bpf_dynptr ptr;
+	struct Key key = {};
+	struct Leaf leaf = {};
 
 
 	struct ethhdr *ethernet = data;
@@ -75,15 +70,10 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
 	u32 tcp_offset = ip_hl + ETH_LEN + 12;
-	//u32 tcpOff = int(tcp_offset);
 	unsigned int data_offset = 0;
 	bpf_xdp_load_bytes(ctx, tcp_offset, &data_offset, 1);
 	u32 tcp_hl = ((data_offset >> 4) & 0xF) * 4;
-	/*
-	for (int i=4;i<8;i++){
-		dOff_bits[i] = (data_offset[0] & (1 << i)) >> i;
-		bpf_trace_printk("DOFF BITS: %d", dOff_bits[i]);
-	}*/
+
 
 	payload_offset = ETH_LEN + ip_hl + tcp_hl;
 	payload_length = (data_end - data) - payload_offset;
@@ -113,22 +103,21 @@ int xdp(struct xdp_md *ctx) {
 		leaf.first_comm = commCheck->first_comm;
 		sessions.update(&key, &leaf);
 	}
-	//Parse payload by loading bytes
-	/*unsigned char pay[1];
-	*/
 
-	unsigned char payload[150];
-	bpf_xdp_load_bytes(ctx, payload_offset, payload, 81);
-	for (int i=0;i<81;i++){
+	unsigned char payload[361];
+	bpf_xdp_load_bytes(ctx, payload_offset, payload, 361);
+	/*for (int i=0;i<81;i++){
 		if (payload[i] == '\r')
 			payload[i] = 'r';
 		else if (payload[i] == '\n')
 			payload[i] = 'n';
-	}
+	}*/
 	bpf_trace_printk("STRING: %s", payload);
 
 	bpf_trace_printk("GOT PORT 80 PACKET");
 
 	return XDP_PASS;
 }
+
+
 
