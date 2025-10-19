@@ -64,11 +64,6 @@ int xdp(struct xdp_md *ctx) {
 	key.dst_port = bpf_ntohs(tcp->source);
 	key.src_port = bpf_ntohs(tcp->dest);
 
-	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
-	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
-	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
-	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
-
 	u32 tcp_offset = ip_hl + ETH_LEN + 12;
 	unsigned int data_offset = 0;
 	bpf_xdp_load_bytes(ctx, tcp_offset, &data_offset, 1);
@@ -77,10 +72,6 @@ int xdp(struct xdp_md *ctx) {
 
 	payload_offset = ETH_LEN + ip_hl + tcp_hl;
 	payload_length = (data_end - data) - payload_offset;
-
-	bpf_trace_printk("TOT LEN: %ld\n", data_end - data);
-	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
-	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
 	if (payload_length == 0){
 		return XDP_PASS;
@@ -111,10 +102,17 @@ int xdp(struct xdp_md *ctx) {
 	unsigned int content_length;
 	bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
 	if (crlf[0] == '\r' && crlf[1] == '\n' && crlf[2] == '\r' && crlf[3] == '\n')
-			bpf_trace_printk("CHECK");
+			bpf_trace_printk("CRLF CHECK");
 
 
+	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
+	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
+	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
+	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
+	bpf_trace_printk("TOT LEN: %ld\n", data_end - data);
+	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
+	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
 	bpf_trace_printk("STRING: %s", crlf);
 	bpf_trace_printk("GOT PORT 80 PACKET");
