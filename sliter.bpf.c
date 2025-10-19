@@ -103,17 +103,20 @@ int xdp(struct xdp_md *ctx) {
 		leaf.first_comm = commCheck->first_comm;
 		sessions.update(&key, &leaf);
 	}
+	//check last 4 bytes (data_end - 4) for rnrn
+	//if post,parse for "Content-length" and check if request body is equal in size
+	//if content-length > total size of Response Body
+	//send back RST+ACK and FIN+ACK
+	char crlf[4];
+	unsigned int content_length;
+	bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
+	if (crlf[0] == '\r' && crlf[1] == '\n' && crlf[2] == '\r' && crlf[3] == '\n')
+			bpf_trace_printk("CHECK");
 
-	unsigned char payload[361];
-	bpf_xdp_load_bytes(ctx, payload_offset, payload, 361);
-	/*for (int i=0;i<81;i++){
-		if (payload[i] == '\r')
-			payload[i] = 'r';
-		else if (payload[i] == '\n')
-			payload[i] = 'n';
-	}*/
-	bpf_trace_printk("STRING: %s", payload);
 
+
+
+	bpf_trace_printk("STRING: %s", crlf);
 	bpf_trace_printk("GOT PORT 80 PACKET");
 
 	return XDP_PASS;
