@@ -82,28 +82,46 @@ int xdp(struct xdp_md *ctx) {
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commTime;
 		sessions.update(&key, &leaf);
+		//return XDP_PASS;
 	}
 	else{
 		unsigned long long elapsedSinceFirst = (commTime - commCheck->first_comm)/1000000000;
 		unsigned long long elapsedSinceLast = (commTime - commCheck->prv_comm)/1000000000;
 		bpf_trace_printk("Elapsed Time Since First Packet: %ld\n", elapsedSinceFirst);
 		bpf_trace_printk("Elapsed Time Since Previous Packet: %ld\n", elapsedSinceLast);
-		if (elapsedSinceFirst > IDLEOUT || elapsedSinceLast > CONNOUT)
-			return XDP_DROP;
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commCheck->first_comm;
 		sessions.update(&key, &leaf);
+		if (elapsedSinceFirst > IDLEOUT || elapsedSinceLast > CONNOUT)
+			return XDP_DROP;//CHANGE TO PASS AFTER
 	}
 	//check last 4 bytes (data_end - 4) for rnrn
 	//if post,parse for "Content-length" and check if request body is equal in size
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
-	char crlf[4];
-	unsigned int content_length;
-	bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
-	if (crlf[0] == '\r' && crlf[1] == '\n' && crlf[2] == '\r' && crlf[3] == '\n')
-			bpf_trace_printk("CRLF CHECK");
+	char headType[7];
+	bpf_xdp_load_bytes(ctx, payload_offset, headType, 7);
+	bpf_trace_printk("Head Type %s", headType);
+	if (headType[0] == 'G' && headType[1] == 'E' && headType[2] == 'T'){
+		char crlf[4];
+		bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
+		bpf_trace_printk("STRING: %s", crlf);
+		if (crlf[0] == '\r' && crlf[1] == '\n' && crlf[2] == '\r' && crlf[3] == '\n'){
+			bpf_trace_printk("CRLF PASS");
+			return XDP_PASS;}
+		else{
+			bpf_trace_printk("CRLF DROP");
+			return XDP_DROP;
+			//goto: end connection
+		}
+	}
 
+	if (headType[0] == 'P' && headType[1] == 'O' && headType[2] == 'S' && headType[3] == 'T'){
+		unsigned int content_length;
+		char payload[82];
+		bpf_xdp_load_bytes(ctx, payload_offset, payload, 82);
+		bpf_trace_printk("POST PAY: %s", payload);
+	}
 
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
 	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
@@ -114,7 +132,6 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
 	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
-	bpf_trace_printk("STRING: %s", crlf);
 	bpf_trace_printk("GOT PORT 80 PACKET");
 
 	return XDP_PASS;
