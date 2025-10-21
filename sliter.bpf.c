@@ -115,12 +115,16 @@ int xdp(struct xdp_md *ctx) {
 			//goto: end connection
 		}
 	}
-
+	//bpf_trace_printk("STRNCMP %ld", bpf_strncmp("wscasweContent", 14,"Content-Length"));
 	if (headType[0] == 'P' && headType[1] == 'O' && headType[2] == 'S' && headType[3] == 'T'){
 		unsigned int content_length;
-		char payload[82];
-		bpf_xdp_load_bytes(ctx, payload_offset, payload, 82);
-		bpf_trace_printk("POST PAY: %s", payload);
+		char searchArr[5];
+		u32 lenLeft = payload_length;
+		/*for (int i = 0; (i*5)+5 < payload_length; i++){
+			bpf_xdp_load_bytes(ctx, payload_offset + (i * 5), searchArr, 5);
+			if (bpf_strncmp(searchArr, 5, "ent-Le") == 0)
+				bpf_trace_printk("length FOUND");
+		}*/
 	}
 
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
