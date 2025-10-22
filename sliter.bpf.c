@@ -13,6 +13,7 @@
 #define ETH_P_IP        0x0800
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
+#define MAX_STRING_LENGTH 0xFFFF
 
 struct Key {
 	u32 src_ip;
@@ -26,6 +27,11 @@ struct Leaf {
 	unsigned long long first_comm;
 };
 
+struct pLen{
+	u32 len;
+};
+
+BPF_RINGBUF_OUTPUT(events, 64);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
 
 int xdp(struct xdp_md *ctx) {
@@ -34,7 +40,7 @@ int xdp(struct xdp_md *ctx) {
 	u32 tcp_header_length = 0;
 	u32 ip_header_length = 0;
 	u32 payload_offset = 0;
-	u32 payload_length = 0;
+	u64 payload_length = 0;
 	unsigned long long commTime = bpf_ktime_get_ns();
 	struct Key key = {};
 	struct Leaf leaf = {};
@@ -72,8 +78,11 @@ int xdp(struct xdp_md *ctx) {
 
 	payload_offset = ETH_LEN + ip_hl + tcp_hl;
 	payload_length = (data_end - data) - payload_offset;
+	struct pLen payLen = {};
+	payLen.len = payload_length;
 
-	if (payload_length == 0){
+
+	if (payload_length <= 0){
 		return XDP_PASS;
 	}
 
@@ -99,10 +108,16 @@ int xdp(struct xdp_md *ctx) {
 	//if post,parse for "Content-length" and check if request body is equal in size
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
-	char headType[7];
-	bpf_xdp_load_bytes(ctx, payload_offset, headType, 7);
-	bpf_trace_printk("Head Type %s", headType);
-	if (headType[0] == 'G' && headType[1] == 'E' && headType[2] == 'T'){
+	//u32 payKey = 123;
+	//char zero = '0';
+	//bpf_xdp_load_bytes(ctx, payload_offset, arrCPU.lookup_or_try_init(&payKey, &zero), payload_length);
+	char *bufPoint = events.ringbuf_reserve(65535);
+	if (bufPoint != NULL){
+		bpf_xdp_load_bytes(ctx, payload_offset, bufPoint, payLen.len);
+		bpf_trace_printk("Head Type %s", bufPoint);
+		events.ringbuf_discard(bufPoint, 0);
+	}
+	/*if (headType[0] == 'G' && headType[1] == 'E' && headType[2] == 'T'){
 		char crlf[4];
 		bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
 		bpf_trace_printk("STRING: %s", crlf);
@@ -114,18 +129,16 @@ int xdp(struct xdp_md *ctx) {
 			return XDP_DROP;
 			//goto: end connection
 		}
-	}
-	//bpf_trace_printk("STRNCMP %ld", bpf_strncmp("wscasweContent", 14,"Content-Length"));
-	if (headType[0] == 'P' && headType[1] == 'O' && headType[2] == 'S' && headType[3] == 'T'){
+	}*/
+	/*if (headType[0] == 'P' && headType[1] == 'O' && headType[2] == 'S' && headType[3] == 'T'){
 		unsigned int content_length;
-		char searchArr[5];
-		u32 lenLeft = payload_length;
-		/*for (int i = 0; (i*5)+5 < payload_length; i++){
-			bpf_xdp_load_bytes(ctx, payload_offset + (i * 5), searchArr, 5);
-			if (bpf_strncmp(searchArr, 5, "ent-Le") == 0)
-				bpf_trace_printk("length FOUND");
-		}*/
-	}
+		char headers[];
+		char conLen[] = "Content-Length";
+		bpf_xdp_load_bytes(ctx, payload_offset, headers, 250);
+		if (strstr(headers, conLen) != NULL){
+			bpf_trace_printk("FOUND CONTENT LEN");
+		}
+	}*/
 
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
 	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
@@ -140,6 +153,8 @@ int xdp(struct xdp_md *ctx) {
 
 	return XDP_PASS;
 }
+
+
 
 
 
