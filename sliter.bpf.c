@@ -114,33 +114,23 @@ int xdp(struct xdp_md *ctx) {
 			return -1;
 		}
 		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
-			unsigned long long crlf = payLen - 4;
-				/*for (int i = 0; i < 4; i++){
-					if (crlf+i < payLen){
-					if (payload->msg[crlf+i] == '\r')
-						bpf_trace_printk("R");
-					if (payload->msg[crlf+i] == '\n')
-						bpf_trace_printk("N");
-					}
-				}*/
-				if (payload->msg[crlf < 65535 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65535 ? crlf+1 : 0] == '\n' && payload->msg[crlf + 2 < 65535 ? crlf+2 : 0] == '\r' && payload->msg[crlf + 3 < 65535 ? crlf+3 : 0] == '\n'){
-					bpf_trace_printk("CRLF PASS");
-					events.ringbuf_discard(payload, 0);
-					return XDP_PASS;}
-				else{
-					bpf_trace_printk("CRLF DROP");
-					events.ringbuf_discard(payload, 0);
-					return XDP_DROP;
-					//goto: end connection
+			unsigned long long crlf = payLen - 5;
+			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
+				bpf_trace_printk("CRLF PASS");
+				events.ringbuf_discard(payload, 0);
+				return XDP_PASS;}
+			else{
+				bpf_trace_printk("CRLF DROP");
+				events.ringbuf_discard(payload, 0);
+				return XDP_DROP;
+				//goto: end connection
 			}
 		}
-		/*if (payload[0] == 'P' && payload[1] == 'O' && payload[2] == 'S' && payload[3] == 'T'){
-			unsigned int content_length;
+		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
 			char conLen[] = "Content-Length";
-			if (strstr(payload, conLen) != NULL){
-				bpf_trace_printk("FOUND CONTENT LEN");
-			}
-		}*/
+			conLen[14] = '\0';
+			bpf_trace_printk("FOUND CONTENT LEN");
+		}
 		events.ringbuf_discard(payload, 0);
 	}
 
