@@ -35,6 +35,8 @@ struct RingBuff{
 BPF_RINGBUF_OUTPUT(events, 64);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
 
+
+
 int xdp(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
 	void *data_end = (void *)(long)ctx->data_end;
@@ -127,8 +129,6 @@ int xdp(struct xdp_md *ctx) {
 			}
 		}
 		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
-			char conLen[] = "Content-Length";
-			conLen[14] = '\0';
 			bpf_trace_printk("FOUND CONTENT LEN");
 		}
 		events.ringbuf_discard(payload, 0);
@@ -147,8 +147,6 @@ int xdp(struct xdp_md *ctx) {
 
 	return XDP_PASS;
 }
-
-
 
 
 
