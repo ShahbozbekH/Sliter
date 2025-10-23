@@ -27,8 +27,9 @@ struct Leaf {
 	unsigned long long first_comm;
 };
 
-struct pLen{
-	u32 len;
+
+struct RingBuff{
+	char msg[MAX_STRING_LENGTH];
 };
 
 BPF_RINGBUF_OUTPUT(events, 64);
@@ -39,7 +40,7 @@ int xdp(struct xdp_md *ctx) {
 	void *data_end = (void *)(long)ctx->data_end;
 	u32 tcp_header_length = 0;
 	u32 ip_header_length = 0;
-	u32 payload_offset = 0;
+	u64 payload_offset = 0;
 	u64 payload_length = 0;
 	unsigned long long commTime = bpf_ktime_get_ns();
 	struct Key key = {};
@@ -77,10 +78,7 @@ int xdp(struct xdp_md *ctx) {
 
 
 	payload_offset = ETH_LEN + ip_hl + tcp_hl;
-	payload_length = (data_end - data) - payload_offset;
-	struct pLen payLen = {};
-	payLen.len = payload_length;
-
+	payload_length = (u64)(data_end - data) - payload_offset;
 
 	if (payload_length <= 0){
 		return XDP_PASS;
@@ -108,44 +106,50 @@ int xdp(struct xdp_md *ctx) {
 	//if post,parse for "Content-length" and check if request body is equal in size
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
-	//u32 payKey = 123;
-	//char zero = '0';
-	//bpf_xdp_load_bytes(ctx, payload_offset, arrCPU.lookup_or_try_init(&payKey, &zero), payload_length);
-	char *bufPoint = events.ringbuf_reserve(65535);
-	if (bufPoint != NULL){
-		bpf_xdp_load_bytes(ctx, payload_offset, bufPoint, payLen.len);
-		bpf_trace_printk("Head Type %s", bufPoint);
-		events.ringbuf_discard(bufPoint, 0);
+	struct RingBuff *payload = events.ringbuf_reserve(sizeof(struct RingBuff));
+	if (payload){
+		__u32 payLen = bpf_probe_read_kernel_str(payload->msg, ip->tot_len, data + payload_offset);
+		if (payLen < 0){
+			events.ringbuf_discard(payload, 0);
+			return -1;
+		}
+		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
+			unsigned long long crlf = payLen - 4;
+				/*for (int i = 0; i < 4; i++){
+					if (crlf+i < payLen){
+					if (payload->msg[crlf+i] == '\r')
+						bpf_trace_printk("R");
+					if (payload->msg[crlf+i] == '\n')
+						bpf_trace_printk("N");
+					}
+				}*/
+				if (payload->msg[crlf < 65535 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65535 ? crlf+1 : 0] == '\n' && payload->msg[crlf + 2 < 65535 ? crlf+2 : 0] == '\r' && payload->msg[crlf + 3 < 65535 ? crlf+3 : 0] == '\n'){
+					bpf_trace_printk("CRLF PASS");
+					events.ringbuf_discard(payload, 0);
+					return XDP_PASS;}
+				else{
+					bpf_trace_printk("CRLF DROP");
+					events.ringbuf_discard(payload, 0);
+					return XDP_DROP;
+					//goto: end connection
+			}
+		}
+		/*if (payload[0] == 'P' && payload[1] == 'O' && payload[2] == 'S' && payload[3] == 'T'){
+			unsigned int content_length;
+			char conLen[] = "Content-Length";
+			if (strstr(payload, conLen) != NULL){
+				bpf_trace_printk("FOUND CONTENT LEN");
+			}
+		}*/
+		events.ringbuf_discard(payload, 0);
 	}
-	/*if (headType[0] == 'G' && headType[1] == 'E' && headType[2] == 'T'){
-		char crlf[4];
-		bpf_xdp_load_bytes(ctx, (payload_offset + payload_length) - 4, crlf, 4);
-		bpf_trace_printk("STRING: %s", crlf);
-		if (crlf[0] == '\r' && crlf[1] == '\n' && crlf[2] == '\r' && crlf[3] == '\n'){
-			bpf_trace_printk("CRLF PASS");
-			return XDP_PASS;}
-		else{
-			bpf_trace_printk("CRLF DROP");
-			return XDP_DROP;
-			//goto: end connection
-		}
-	}*/
-	/*if (headType[0] == 'P' && headType[1] == 'O' && headType[2] == 'S' && headType[3] == 'T'){
-		unsigned int content_length;
-		char headers[];
-		char conLen[] = "Content-Length";
-		bpf_xdp_load_bytes(ctx, payload_offset, headers, 250);
-		if (strstr(headers, conLen) != NULL){
-			bpf_trace_printk("FOUND CONTENT LEN");
-		}
-	}*/
 
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
 	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
 	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
 	bpf_trace_printk("SRC_PORT: %ld\n", key.src_port);
 
-	bpf_trace_printk("TOT LEN: %ld\n", data_end - data);
+	bpf_trace_printk("TOT LEN: %ld\n", (u64)(data_end - data) - payload_offset);
 	bpf_trace_printk("PAYLOAD OFFSET: %ld\n", payload_offset);
 	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
