@@ -35,6 +35,10 @@ struct RingBuff{
 BPF_RINGBUF_OUTPUT(events, 64);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
 
+static long *findContLen(u32 index, struct RingBuff *ctx){
+	bpf_trace_printk("WORKS");
+	return 0;
+}
 
 
 int xdp(struct xdp_md *ctx) {
@@ -47,7 +51,6 @@ int xdp(struct xdp_md *ctx) {
 	unsigned long long commTime = bpf_ktime_get_ns();
 	struct Key key = {};
 	struct Leaf leaf = {};
-
 
 	struct ethhdr *ethernet = data;
 	if (data + sizeof(struct ethhdr) > data_end)
@@ -115,6 +118,7 @@ int xdp(struct xdp_md *ctx) {
 			events.ringbuf_discard(payload, 0);
 			return -1;
 		}
+		bpf_trace_printk("Payload: %c", payload->msg[2143]);
 		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
 			unsigned long long crlf = payLen - 5;
 			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
@@ -129,7 +133,8 @@ int xdp(struct xdp_md *ctx) {
 			}
 		}
 		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
-			bpf_trace_printk("FOUND CONTENT LEN");
+			u32 i = 0;
+			long n = bpf_loop(payLen, findContLen, payload, 0);
 		}
 		events.ringbuf_discard(payload, 0);
 	}

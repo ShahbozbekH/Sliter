@@ -14,7 +14,7 @@ import binascii
 import time
 
 
-b = BPF(src_file="sliter.bpf.c")
+b = BPF(src_file="slither.bpf.c")
 interface = "lo"
 
 
