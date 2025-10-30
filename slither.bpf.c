@@ -1,4 +1,3 @@
-#include <bcc/proto.h>
 #include <net/sock.h>
 #include <uapi/linux/ptrace.h>
 #include <linux/pkt_cls.h>
@@ -27,19 +26,12 @@ struct Leaf {
 	unsigned long long first_comm;
 };
 
-
 struct RingBuff{
-	char msg[MAX_STRING_LENGTH];
+        char msg[MAX_STRING_LENGTH];
 };
 
 BPF_RINGBUF_OUTPUT(events, 64);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
-
-static long *findContLen(u32 index, struct RingBuff *ctx){
-	bpf_trace_printk("WORKS");
-	return 0;
-}
-
 
 int xdp(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
@@ -118,7 +110,7 @@ int xdp(struct xdp_md *ctx) {
 			events.ringbuf_discard(payload, 0);
 			return -1;
 		}
-		bpf_trace_printk("Payload: %c", payload->msg[2143]);
+		bpf_trace_printk("Payload: %s", payload->msg);
 		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
 			unsigned long long crlf = payLen - 5;
 			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
@@ -133,8 +125,32 @@ int xdp(struct xdp_md *ctx) {
 			}
 		}
 		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
-			u32 i = 0;
-			long n = bpf_loop(payLen, findContLen, payload, 0);
+			bool exist = 0;
+			for (int i = 0; i < 500; i++){
+				if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
+					int nextChar = payload->msg[i+2];
+					bpf_trace_printk("Content-Length: %ld", nextChar);
+					if (nextChar == '\r')
+						goto end;
+					if (nextChar == 'C' || nextChar == 'c'){
+						bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
+						if (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')
+							goto parse;
+						else
+							goto cont;
+					}
+					else
+						goto cont;
+					parse:
+						while payload->msg[j] != '\r'
+						bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
+						break;
+					cont:
+						continue;
+					end:
+						break;
+				}
+			}
 		}
 		events.ringbuf_discard(payload, 0);
 	}
