@@ -142,7 +142,11 @@ int xdp(struct xdp_md *ctx) {
 					else
 						goto cont;
 					parse:
-						while payload->msg[j] != '\r'
+						int j = i+18;
+						int length = 0;
+						while (payload->msg[j] != '\r')
+							length++;
+
 						bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
 						break;
 					cont:
