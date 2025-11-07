@@ -131,16 +131,17 @@ int xdp(struct xdp_md *ctx) {
 					int nextChar = payload->msg[i+2];
 					bpf_trace_printk("Content-Length: %ld", nextChar);
 					if (nextChar == '\r')
-						goto end;
+						break;
+						//goto end;
 					if (nextChar == 'C' || nextChar == 'c'){
 						bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
 						if (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')
-							goto parse;
+							bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
 						else
-							goto cont;
-					}
-					else
-						goto cont;
+							break;
+					}/*
+				else
+					goto cont;
 					parse:
 						int j = i+18;
 						int length = 0;
@@ -148,13 +149,12 @@ int xdp(struct xdp_md *ctx) {
 							length++;
 
 						bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
-						break;
+						goto end;
 					cont:
-						continue;
-					end:
-						break;
+						continue;*/
 				}
 			}
+			//end:
 		}
 		events.ringbuf_discard(payload, 0);
 	}
