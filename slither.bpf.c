@@ -1,10 +1,14 @@
+#ifdef __BCC__
 #include <net/sock.h>
 #include <uapi/linux/ptrace.h>
+#else
+#include <linux/types.h>
 #include <linux/pkt_cls.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
-#include <bpf/bpf.h>
+#include <linux/bpf.h>
 #include <bpf/libbpf.h>
+#endif
 
 #define IP_TCP 6
 #define ETH_LEN 14
@@ -32,8 +36,10 @@ struct RingBuff{
         char msg[MAX_STRING_LENGTH];
 };
 
+#ifdef __BCC__
 BPF_RINGBUF_OUTPUT(events, 64);
 BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
+#endif
 
 int xdp(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
