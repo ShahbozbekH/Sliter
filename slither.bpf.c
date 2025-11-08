@@ -3,6 +3,8 @@
 #include <linux/pkt_cls.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 
 #define IP_TCP 6
 #define ETH_LEN 14
@@ -104,10 +106,11 @@ int xdp(struct xdp_md *ctx) {
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
 	struct RingBuff *payload = events.ringbuf_reserve(sizeof(struct RingBuff));
+	bpf_trace_printk("HERE HERE %ld", events.ringbuf_query(BPF_RB_CONS_POS));
 	if (payload){
 		__u32 payLen = bpf_probe_read_kernel_str(payload->msg, ip->tot_len, data + payload_offset);
 		if (payLen < 0){
-			events.ringbuf_discard(payload, 0);
+			events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 			return -1;
 		}
 		bpf_trace_printk("Payload: %s", payload->msg);
@@ -115,19 +118,23 @@ int xdp(struct xdp_md *ctx) {
 			unsigned long long crlf = payLen - 5;
 			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
 				bpf_trace_printk("CRLF PASS");
-				events.ringbuf_discard(payload, 0);
-				return XDP_PASS;}
+				events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+				return XDP_PASS;
+				}
 			else{
 				bpf_trace_printk("CRLF DROP");
-				events.ringbuf_discard(payload, 0);
+				events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 				return XDP_DROP;
 				//goto: end connection
 			}
 		}
+		int end = 0;
+		int start = 0;
 		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
 			bool exist = 0;
 			for (int i = 0; i < 500; i++){
 				if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
+					if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
 					int nextChar = payload->msg[i+2];
 					bpf_trace_printk("Content-Length: %ld", nextChar);
 					if (nextChar == '\r')
@@ -139,24 +146,44 @@ int xdp(struct xdp_md *ctx) {
 							bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
 						else
 							break;
-					}/*
-				else
-					goto cont;
-					parse:
-						int j = i+18;
-						int length = 0;
-						while (payload->msg[j] != '\r')
-							length++;
-
-						bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
-						goto end;
-					cont:
-						continue;*/
+					/*bpf_trace_printk("HELLO");
+					if (exist){
+							end = i;
+							int lenLen = end - start;
+							bpf_trace_printk("lenLen %ld", lenLen);
+							long contentLength = 0;
+							for (int j = 0; j < lenLen; j++){
+								contentLength += payload->msg[start];
+							}
+							bpf_trace_printk("contLen %ld", contentLength);
+							goto stop;
+						}
+					else{
+						char nextChar = payload->msg[i+2];
+						switch (nextChar){
+							case('\r'):
+								goto stop;
+							case('C'):
+								goto check;
+							case('c'):
+								goto check;
+						}
+						check:
+						bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
+						if ((payload->msg[i+3] == 'o' || payload->msg[i+3] == 'O') && (payload->msg[i+4] == 'n' || payload->msg[i+13] == 'G') && (payload->msg[i+14] == 't' || payload->msg[i+14] == 'T') && (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')){
+							bpf_trace_printk("18 and 19: %c %c", payload->msg[i+18], payload->msg[i+19]);
+							exist = 1;
+							start = i+18;
+							i += 18;
+							continue;*/
+						}
+					}
 				}
 			}
-			//end:
 		}
-		events.ringbuf_discard(payload, 0);
+		//stop:
+		events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+		ring_buffer__free(events);
 	}
 
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
