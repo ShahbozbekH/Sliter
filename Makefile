@@ -22,7 +22,7 @@ $(BPF_OBJ): %.o: %.c vmlinux.h
 	    -O2 -o $@ -c $<
 
 vmlinux.h:
-	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h		
+	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 
 clean:
 	- bpftool net detach xdp dev lo

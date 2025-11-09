@@ -1,14 +1,7 @@
-#ifdef __BCC__
-#include <net/sock.h>
-#include <uapi/linux/ptrace.h>
-#else
-#include <linux/types.h>
-#include <linux/pkt_cls.h>
-#include <linux/ip.h>
-#include <linux/tcp.h>
-#include <linux/bpf.h>
-#include <bpf/libbpf.h>
-#endif
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
+#include <bpf/bpf_core_read.h>
 
 #define IP_TCP 6
 #define ETH_LEN 14
@@ -19,6 +12,8 @@
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 #define MAX_STRING_LENGTH 0xFFFF
+
+char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct Key {
 	u32 src_ip;
@@ -36,16 +31,22 @@ struct RingBuff{
         char msg[MAX_STRING_LENGTH];
 };
 
-#ifdef __BCC__
-BPF_RINGBUF_OUTPUT(events, 64);
-BPF_TABLE("hash", struct Key, struct Leaf, sessions, 1024);
-#endif
 
-int xdp(struct xdp_md *ctx) {
+struct{
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 65536);
+	} events SEC(".maps");
+struct{
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1024);
+	__type(key, struct Key);
+	__type(value, struct Leaf);
+	} sessions SEC(".maps");
+
+SEC("xdp")
+int http_filter(struct xdp_md *ctx) {
 	void *data = (void *)(long)ctx->data;
 	void *data_end = (void *)(long)ctx->data_end;
-	u32 tcp_header_length = 0;
-	u32 ip_header_length = 0;
 	u64 payload_offset = 0;
 	u64 payload_length = 0;
 	unsigned long long commTime = bpf_ktime_get_ns();
@@ -89,11 +90,11 @@ int xdp(struct xdp_md *ctx) {
 		return XDP_PASS;
 	}
 
-	struct Leaf *commCheck = sessions.lookup(&key);
+	struct Leaf *commCheck = bpf_map_lookup_elem(&sessions, &key);
 	if (commCheck == NULL){
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commTime;
-		sessions.update(&key, &leaf);
+		bpf_map_update_elem(&sessions, &key, &leaf, BPF_NOEXIST);
 		//return XDP_PASS;
 	}
 	else{
@@ -103,7 +104,7 @@ int xdp(struct xdp_md *ctx) {
 		bpf_trace_printk("Elapsed Time Since Previous Packet: %ld\n", elapsedSinceLast);
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commCheck->first_comm;
-		sessions.update(&key, &leaf);
+		bpf_map_update_elem(&sessions, &key, &leaf, BPF_EXIST);
 		if (elapsedSinceFirst > IDLEOUT || elapsedSinceLast > CONNOUT)
 			return XDP_DROP;//CHANGE TO PASS AFTER
 	}
@@ -111,25 +112,25 @@ int xdp(struct xdp_md *ctx) {
 	//if post,parse for "Content-length" and check if request body is equal in size
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
-	struct RingBuff *payload = events.ringbuf_reserve(sizeof(struct RingBuff));
-	bpf_trace_printk("HERE HERE %ld", events.ringbuf_query(BPF_RB_CONS_POS));
+	struct RingBuff *payload = bpf_ringbuf_reserve(&events, sizeof(struct RingBuff), 0);
+	//bpf_trace_printk("HERE HERE %ld", events.ringbuf_query(BPF_RB_CONS_POS));
 	if (payload){
 		__u32 payLen = bpf_probe_read_kernel_str(payload->msg, ip->tot_len, data + payload_offset);
 		if (payLen < 0){
-			events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+			bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 			return -1;
 		}
-		bpf_trace_printk("Payload: %s", payload->msg);
+		bpf_trace_printk("Payload: %s", sizeof(struct RingBuff), payload->msg);
 		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
 			unsigned long long crlf = payLen - 5;
 			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
-				bpf_trace_printk("CRLF PASS");
-				events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+				bpf_printk("CRLF PASS");
+				bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 				return XDP_PASS;
 				}
 			else{
-				bpf_trace_printk("CRLF DROP");
-				events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+				bpf_printk("CRLF DROP");
+				bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 				return XDP_DROP;
 				//goto: end connection
 			}
@@ -142,14 +143,15 @@ int xdp(struct xdp_md *ctx) {
 				if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
 					if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
 					int nextChar = payload->msg[i+2];
-					bpf_trace_printk("Content-Length: %ld", nextChar);
+					//bpf_trace_printk("Content-Length: %ld", nextChar);
 					if (nextChar == '\r')
 						break;
 						//goto end;
 					if (nextChar == 'C' || nextChar == 'c'){
-						bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
+						//bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
 						if (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')
-							bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
+							break;
+							//bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
 						else
 							break;
 					/*bpf_trace_printk("HELLO");
@@ -188,10 +190,9 @@ int xdp(struct xdp_md *ctx) {
 			}
 		}
 		//stop:
-		events.ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
-		ring_buffer__free(events);
+		bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 	}
-
+	/*
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
 	bpf_trace_printk("DEST_IP %ld\n,", key.dst_ip);
 	bpf_trace_printk("DST_PORT: %ld\n", key.dst_port);
@@ -202,9 +203,10 @@ int xdp(struct xdp_md *ctx) {
 	bpf_trace_printk("PAYLOAD LEN: %ld\n", payload_length);
 
 	bpf_trace_printk("GOT PORT 80 PACKET");
-
+	*/
 	return XDP_PASS;
 }
+
 
 
 
