@@ -13,8 +13,6 @@
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
 #define MAX_STRING_LENGTH 0xFFFF
 
-char LICENSE[] SEC("license") = "Dual BSD/GPL";
-
 struct Key {
 	u32 src_ip;
 	u32 dst_ip;
@@ -31,11 +29,11 @@ struct RingBuff{
         char msg[MAX_STRING_LENGTH];
 };
 
-
 struct{
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 65536);
-	} events SEC(".maps");
+	__uint(max_entries, sizeof(struct RingBuff));
+} events SEC(".maps");
+
 struct{
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 1024);
@@ -100,8 +98,8 @@ int http_filter(struct xdp_md *ctx) {
 	else{
 		unsigned long long elapsedSinceFirst = (commTime - commCheck->first_comm)/1000000000;
 		unsigned long long elapsedSinceLast = (commTime - commCheck->prv_comm)/1000000000;
-		bpf_trace_printk("Elapsed Time Since First Packet: %ld\n", elapsedSinceFirst);
-		bpf_trace_printk("Elapsed Time Since Previous Packet: %ld\n", elapsedSinceLast);
+		bpf_printk("Elapsed Time Since First Packet: %ld\n", elapsedSinceFirst);
+		bpf_printk("Elapsed Time Since Previous Packet: %ld\n", elapsedSinceLast);
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commCheck->first_comm;
 		bpf_map_update_elem(&sessions, &key, &leaf, BPF_EXIST);
@@ -120,7 +118,7 @@ int http_filter(struct xdp_md *ctx) {
 			bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
 			return -1;
 		}
-		bpf_trace_printk("Payload: %s", sizeof(struct RingBuff), payload->msg);
+		bpf_printk("Payload: %s", payload->msg);
 		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
 			unsigned long long crlf = payLen - 5;
 			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
@@ -208,5 +206,4 @@ int http_filter(struct xdp_md *ctx) {
 }
 
 
-
-
+char LICENSE[] SEC("license") = "Dual BSD/GPL";

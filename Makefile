@@ -16,6 +16,7 @@ $(TARGET): $(BPF_OBJ)
 $(BPF_OBJ): %.o: %.c vmlinux.h
 	clang \
 	    -target bpf \
+	    -g\
 	    -D __BPF_TRACING__ \
 		-I/usr/include/$(shell uname -m)-linux-gnu \
 	    -Wall \
