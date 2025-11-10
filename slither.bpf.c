@@ -31,7 +31,7 @@ struct RingBuff{
 
 struct{
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, sizeof(struct RingBuff));
+	__uint(max_entries, 256 * 1024);
 } events SEC(".maps");
 
 struct{
@@ -39,7 +39,7 @@ struct{
 	__uint(max_entries, 1024);
 	__type(key, struct Key);
 	__type(value, struct Leaf);
-	} sessions SEC(".maps");
+} sessions SEC(".maps");
 
 SEC("xdp")
 int http_filter(struct xdp_md *ctx) {
@@ -50,7 +50,6 @@ int http_filter(struct xdp_md *ctx) {
 	unsigned long long commTime = bpf_ktime_get_ns();
 	struct Key key = {};
 	struct Leaf leaf = {};
-
 	struct ethhdr *ethernet = data;
 	if (data + sizeof(struct ethhdr) > data_end)
 		return XDP_PASS;
@@ -87,7 +86,6 @@ int http_filter(struct xdp_md *ctx) {
 	if (payload_length <= 0){
 		return XDP_PASS;
 	}
-
 	struct Leaf *commCheck = bpf_map_lookup_elem(&sessions, &key);
 	if (commCheck == NULL){
 		leaf.prv_comm = commTime;
@@ -112,7 +110,9 @@ int http_filter(struct xdp_md *ctx) {
 	//send back RST+ACK and FIN+ACK
 	struct RingBuff *payload = bpf_ringbuf_reserve(&events, sizeof(struct RingBuff), 0);
 	//bpf_trace_printk("HERE HERE %ld", events.ringbuf_query(BPF_RB_CONS_POS));
+	bpf_printk("Payload: %ld", bpf_ringbuf_query(&events, BPF_RB_RING_SIZE));
 	if (payload){
+		bpf_printk("HO");
 		__u32 payLen = bpf_probe_read_kernel_str(payload->msg, ip->tot_len, data + payload_offset);
 		if (payLen < 0){
 			bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
