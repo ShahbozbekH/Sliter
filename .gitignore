@@ -1,2 +1,4 @@
 vmlinux*
-slither.bpf.o
+*.o
+*.skel.h
+slither

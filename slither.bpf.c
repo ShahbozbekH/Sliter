@@ -2,6 +2,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_core_read.h>
+#include <slither.h>
 
 #define IP_TCP 6
 #define ETH_LEN 14
@@ -23,10 +24,6 @@ struct Key {
 struct Leaf {
 	unsigned long long prv_comm;
 	unsigned long long first_comm;
-};
-
-struct RingBuff{
-        char msg[MAX_STRING_LENGTH];
 };
 
 struct{
@@ -109,86 +106,41 @@ int http_filter(struct xdp_md *ctx) {
 	//if content-length > total size of Response Body
 	//send back RST+ACK and FIN+ACK
 	struct RingBuff *payload = bpf_ringbuf_reserve(&events, sizeof(struct RingBuff), 0);
-	//bpf_trace_printk("HERE HERE %ld", events.ringbuf_query(BPF_RB_CONS_POS));
-	bpf_printk("Payload: %ld", bpf_ringbuf_query(&events, BPF_RB_RING_SIZE));
+	bpf_printk("Payload: %ld", bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA));
 	if (payload){
-		bpf_printk("HO");
 		__u32 payLen = bpf_probe_read_kernel_str(payload->msg, ip->tot_len, data + payload_offset);
+		bpf_printk("payLen: %ld", payLen);
+		bpf_printk("ip->tot_len: %ld", ip->tot_len);
+		bpf_printk("payload length: %ld", payload_length);
 		if (payLen < 0){
-			bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+			bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+			//ring_buffer__free(&events);
 			return -1;
 		}
 		bpf_printk("Payload: %s", payload->msg);
-		if (payload->msg[0] == 'G' && payload->msg[1] == 'E' && payload->msg[2] == 'T'){
+		if (bpf_strncmp(payload->msg, 3, "GET") == 0){
 			unsigned long long crlf = payLen - 5;
-			if (payload->msg[crlf < 65534 ? crlf : 0] == '\r' && payload->msg[crlf + 1 < 65534 ? crlf + 1 : 0] == '\n' && payload->msg[crlf + 2 < 65534 ? crlf + 2 : 0] == '\r' && payload->msg[crlf + 3 < 65534 ? crlf + 3 : 0] == '\n'){
+			char *crlfPtr = payload->msg + (crlf < 65532 ? crlf : 0);
+			bpf_printk("CRLF COMPARE: %ld", bpf_strncmp(crlfPtr, 4, "\r\n\r\n"));
+			if (bpf_strncmp(crlfPtr, 4, "\r\n\r\n") == 0){
 				bpf_printk("CRLF PASS");
-				bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+				bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+				//ring_buffer__free(&events);
 				return XDP_PASS;
 				}
 			else{
 				bpf_printk("CRLF DROP");
-				bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+				bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+				//ring_buffer__free(&events);
 				return XDP_DROP;
 				//goto: end connection
 			}
 		}
-		int end = 0;
-		int start = 0;
-		if (payload->msg[0] == 'P' && payload->msg[1] == 'O' && payload->msg[2] == 'S' && payload->msg[3] == 'T'){
+		if (bpf_strncmp(payload->msg, 4, "POST") == 0){
 			bool exist = 0;
-			for (int i = 0; i < 500; i++){
-				if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
-					if (payload->msg[i] == '\r' && payload->msg[i+1] == '\n'){
-					int nextChar = payload->msg[i+2];
-					//bpf_trace_printk("Content-Length: %ld", nextChar);
-					if (nextChar == '\r')
-						break;
-						//goto end;
-					if (nextChar == 'C' || nextChar == 'c'){
-						//bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
-						if (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')
-							break;
-							//bpf_trace_printk("Content-Length: %c %c", payload->msg[i+18], payload->msg[i+19]);
-						else
-							break;
-					/*bpf_trace_printk("HELLO");
-					if (exist){
-							end = i;
-							int lenLen = end - start;
-							bpf_trace_printk("lenLen %ld", lenLen);
-							long contentLength = 0;
-							for (int j = 0; j < lenLen; j++){
-								contentLength += payload->msg[start];
-							}
-							bpf_trace_printk("contLen %ld", contentLength);
-							goto stop;
-						}
-					else{
-						char nextChar = payload->msg[i+2];
-						switch (nextChar){
-							case('\r'):
-								goto stop;
-							case('C'):
-								goto check;
-							case('c'):
-								goto check;
-						}
-						check:
-						bpf_trace_printk("Content-Length: %c", payload->msg[i+15]);
-						if ((payload->msg[i+3] == 'o' || payload->msg[i+3] == 'O') && (payload->msg[i+4] == 'n' || payload->msg[i+13] == 'G') && (payload->msg[i+14] == 't' || payload->msg[i+14] == 'T') && (payload->msg[i+15] == 'h' || payload->msg[i+15] == 'H')){
-							bpf_trace_printk("18 and 19: %c %c", payload->msg[i+18], payload->msg[i+19]);
-							exist = 1;
-							start = i+18;
-							i += 18;
-							continue;*/
-						}
-					}
-				}
-			}
 		}
-		//stop:
-		bpf_ringbuf_discard(payload, BPF_RB_FORCE_WAKEUP);
+		bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+		//ring_buffer__free(&events);
 	}
 	/*
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
