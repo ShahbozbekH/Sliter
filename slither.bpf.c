@@ -2,7 +2,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_core_read.h>
-#include <slither.h>
+#include "slither.h"
 
 #define IP_TCP 6
 #define ETH_LEN 14
@@ -12,7 +12,6 @@
 #define ETH_P_IP        0x0800
 #define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
 #define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
-#define MAX_STRING_LENGTH 0xFFFF
 
 struct Key {
 	u32 src_ip;
