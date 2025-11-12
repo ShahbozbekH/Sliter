@@ -13,6 +13,8 @@
 #include "slither.h"
 #include "slither.skel.h"
 #include <net/if.h>
+
+
 int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args){
 	if (level > LIBBPF_INFO)
 		return 0;
@@ -41,6 +43,7 @@ static void sig_handler(int sig)
 
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
+
 	return 0;
 }
 

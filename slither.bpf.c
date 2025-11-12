@@ -112,7 +112,7 @@ int http_filter(struct xdp_md *ctx) {
 		bpf_printk("ip->tot_len: %ld", ip->tot_len);
 		bpf_printk("payload length: %ld", payload_length);
 		if (payLen < 0){
-			bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+			bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
 			//ring_buffer__free(&events);
 			return -1;
 		}
@@ -123,13 +123,13 @@ int http_filter(struct xdp_md *ctx) {
 			bpf_printk("CRLF COMPARE: %ld", bpf_strncmp(crlfPtr, 4, "\r\n\r\n"));
 			if (bpf_strncmp(crlfPtr, 4, "\r\n\r\n") == 0){
 				bpf_printk("CRLF PASS");
-				bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+				bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
 				//ring_buffer__free(&events);
 				return XDP_PASS;
 				}
 			else{
 				bpf_printk("CRLF DROP");
-				bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+				bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
 				//ring_buffer__free(&events);
 				return XDP_DROP;
 				//goto: end connection
@@ -138,7 +138,7 @@ int http_filter(struct xdp_md *ctx) {
 		if (bpf_strncmp(payload->msg, 4, "POST") == 0){
 			bool exist = 0;
 		}
-		bpf_ringbuf_submit(payload, BPF_RB_NO_WAKEUP);
+		bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
 		//ring_buffer__free(&events);
 	}
 	/*
