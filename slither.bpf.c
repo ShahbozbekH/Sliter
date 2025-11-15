@@ -25,6 +25,24 @@ struct Leaf {
 	unsigned long long first_comm;
 };
 
+#define bpf_for(i, start, end) for (                                \
+    /* initialize and define destructor */                          \
+    struct bpf_iter_num ___it __attribute__((aligned(8), /* enforce, just in case */    \
+                         cleanup(bpf_iter_num_destroy))),       \
+    /* ___p pointer is necessary to call bpf_iter_num_new() *once* to init ___it */     \
+                *___p __attribute__((unused)) = (                   \
+                bpf_iter_num_new(&___it, (start), (end)),           \
+    /* this is a workaround for Clang bug: it currently doesn't emit BTF */         \
+    /* for bpf_iter_num_destroy() when used from cleanup() attribute */         \
+                (void)bpf_iter_num_destroy, (void *)0);             \
+    ({                                          \
+        /* iteration step */                                \
+        int *___t = bpf_iter_num_next(&___it);                      \
+        /* termination and bounds check */                      \
+        (___t && ((i) = *___t, (i) >= (start) && (i) < (end)));             \
+    });                                         \
+)
+
 struct{
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024);
@@ -36,6 +54,7 @@ struct{
 	__type(key, struct Key);
 	__type(value, struct Leaf);
 } sessions SEC(".maps");
+
 
 SEC("xdp")
 int http_filter(struct xdp_md *ctx) {
@@ -113,7 +132,6 @@ int http_filter(struct xdp_md *ctx) {
 		bpf_printk("payload length: %ld", payload_length);
 		if (payLen < 0){
 			bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
-			//ring_buffer__free(&events);
 			return -1;
 		}
 		bpf_printk("Payload: %s", payload->msg);
@@ -124,22 +142,38 @@ int http_filter(struct xdp_md *ctx) {
 			if (bpf_strncmp(crlfPtr, 4, "\r\n\r\n") == 0){
 				bpf_printk("CRLF PASS");
 				bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
-				//ring_buffer__free(&events);
 				return XDP_PASS;
 				}
 			else{
 				bpf_printk("CRLF DROP");
 				bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
-				//ring_buffer__free(&events);
 				return XDP_DROP;
-				//goto: end connection
 			}
 		}
 		if (bpf_strncmp(payload->msg, 4, "POST") == 0){
-			bool exist = 0;
+			int i = 0;
+			int charCount = 0;
+			bpf_for(i, 0, payLen){
+				if (i < 65530) {
+				if (bpf_strncmp(&payload->msg[i], 2, "\r\n") == 0){
+					bpf_printk("found %ld", payload->msg[i]);
+					if (bpf_strncmp(&payload->msg[i], 4, "\r\n\r\n") == 0){
+						bpf_printk("break");
+						break;
+					}
+					if (charCount == 17 && i > 17){
+						if ((payload->msg[i-15] == 'C' || payload->msg[i-15] == 'c') && payload->msg[i-8] == '-' && payload->msg[i-1] == ':'){
+							bpf_printk("FOUND");
+							break;
+						}
+					}
+				}
+				charCount++;
+				i++;
+				}
+			}
 		}
 		bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
-		//ring_buffer__free(&events);
 	}
 	/*
 	bpf_trace_printk("SADDR: %ld\n", key.src_ip);
