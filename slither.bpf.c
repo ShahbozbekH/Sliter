@@ -55,6 +55,12 @@ struct{
 	__type(value, struct Leaf);
 } sessions SEC(".maps");
 
+struct {
+        __uint(type, BPF_MAP_TYPE_QUEUE);
+        __type(value, __u32);
+        __uint(max_entries, 10);
+} queue SEC(".maps");
+
 
 SEC("xdp")
 int http_filter(struct xdp_md *ctx) {
@@ -151,28 +157,39 @@ int http_filter(struct xdp_md *ctx) {
 			}
 		}
 		if (bpf_strncmp(payload->msg, 4, "POST") == 0){
-			int i = 0;
-			int charCount = 0;
+			u32 i = 0;
+			bool j = 0;
+			u32 size = 0;
 			bpf_for(i, 0, payLen){
-				if (i < 65530) {
-				if (bpf_strncmp(&payload->msg[i], 2, "\r\n") == 0){
-					bpf_printk("found %ld", payload->msg[i]);
-					if (bpf_strncmp(&payload->msg[i], 4, "\r\n\r\n") == 0){
-						bpf_printk("break");
-						break;
-					}
-					if (charCount == 17 && i > 17){
-						if ((payload->msg[i-15] == 'C' || payload->msg[i-15] == 'c') && payload->msg[i-8] == '-' && payload->msg[i-1] == ':'){
+				if (i < 65513) {
+					if (bpf_strncmp(&payload->msg[i], 2, "\r\n") == 0){
+						if (bpf_strncmp(&payload->msg[i], 4, "\r\n\r\n") == 0){
+							bpf_printk("break");
+							goto end;
+						}
+						if ((payload->msg[i+2] == 'C' || payload->msg[i+2] == 'c') && payload->msg[i+9] == '-' && payload->msg[i+16] == ':'){
 							bpf_printk("FOUND");
-							break;
+							j = 1;
+							bpf_printk("%ld", i);
+							i += 18;
+							bpf_printk("%c", payload->msg[i]);
+							continue;
 						}
 					}
+					if (j){
+						if (!bpf_strncmp(&payload->msg[i+17], 2, "\r\n"))
+							break;
+						bpf_printk("each elem: %c", payload->msg[i+17]);
+						bpf_map_push_elem(&queue, &payload->msg[i+17], BPF_ANY);
+						size++;
+					}
+					continue;
 				}
-				charCount++;
-				i++;
-				}
+				goto end;
 			}
+			bpf_printk("First num %ld", size);
 		}
+		end:
 		bpf_ringbuf_submit(payload, BPF_RB_FORCE_WAKEUP);
 	}
 	/*
