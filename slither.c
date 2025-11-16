@@ -13,7 +13,72 @@
 #include "slither.h"
 #include "slither.skel.h"
 #include <net/if.h>
+#include <argp.h>
 
+#define warn(...) fprintf(stderr, __VA_ARGS__)
+
+static struct env env = {
+	.connout = 5,
+	.idleout = 5,
+};
+
+//Taken from: https://github.com/iovisor/bcc/blob/b63d7e38e8a0f6339fbd57f3a1ae7297e1993d92/libbpf-tools/tcptracer.c#L58
+static int get_uint(const char *arg, unsigned int *ret,
+		    unsigned int min, unsigned int max)
+{
+	char *end;
+	long val;
+
+	errno = 0;
+	val = strtoul(arg, &end, 10);
+	if (errno) {
+		warn("strtoul: %s: %s\n", arg, strerror(errno));
+		return -1;
+	} else if (end == arg || val < min || val > max) {
+		return -1;
+	}
+	if (ret)
+		*ret = val;
+	return 0;
+}
+
+static const struct argp_option opts[] = {
+	{"conntime", 'd', "<seconds>", 0, "Set threshold for the length of time a connection can remain active before being verified.\n", 0},
+	{"idletime", 'i', "<seconds>", 0, "Set threshold for the length of time between current and last packet sent by client for it to be verified.\n", 0},
+	{NULL, 'h', NULL, OPTION_HIDDEN, "Present this help menu.\n", 0},
+	{},
+};
+
+static const char argp_program_doc[] =
+	"\nSlither\n"
+	"An implementation of an HTTP packet verification method for SLOW attacks developed by Dau Anh Dung and Yasuhiro Nakamura.\n";
+
+
+static error_t parser_arg(int key, char *arg, struct argp_state *state){
+	int err;
+	switch (key){
+	case 'h':
+		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
+		break;
+	case 'd':
+		err = get_uint(arg, &env.connout, 0, 3);
+		if (err) {
+			fprintf(stderr, "999 seconds is the max that can be set");
+			argp_usage(state);
+		}
+		break;
+	case 'i':
+		err = get_uint(arg, &env.idleout, 0, 3);
+		if (err) {
+			fprintf(stderr, "999 seconds is the max that can be set");
+			argp_usage(state);
+		}
+		break;
+	default:
+		return ARGP_ERR_UNKNOWN;
+	}
+	return 0;
+}
 
 int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args){
 	if (level > LIBBPF_INFO)
@@ -60,12 +125,23 @@ static void cleanup_iface() {
   }
 }
 
-int main(){
+int main(int argc, char **argv){
 	struct ring_buffer *rb = NULL;
 	struct slither_bpf *skel;
 	int err;
+	static const struct argp argp = {
+		.options = opts,
+		.parser = parser_arg,
+		.doc = argp_program_doc,
+		.args_doc = NULL,
+	};
 
 	libbpf_set_print(libbpf_print_fn);
+
+	int argErr;
+	argErr = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+	if (argErr)
+		return argErr;
 
 	signal(SIGINT, sig_handler);
 	signal(SIGTERM, sig_handler);

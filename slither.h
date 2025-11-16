@@ -8,6 +8,9 @@ struct RingBuff{
         char msg[MAX_STRING_LENGTH];
 };
 
-
+struct env{
+        unsigned int connout;
+        unsigned int idleout;
+};
 
 #endif
