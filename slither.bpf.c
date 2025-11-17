@@ -57,8 +57,22 @@ struct {
         __uint(type, BPF_MAP_TYPE_STACK);
         __type(value, __u32);
         __uint(max_entries, 10);
-} queue SEC(".maps");
+} stack SEC(".maps");
 
+struct{
+	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+	__uint(max_entries, 256 * 1024);
+} timeout SEC(".maps");
+
+struct env *timeoutStruct;
+
+static long read_protocol_msg(struct bpf_dynptr *dynptr, void *context){
+	timeoutStruct = bpf_dynptr_data(dynptr, 0, sizeof(struct env));
+	if (!timeoutStruct){
+		return -1;
+	}
+	return 0;
+}
 
 SEC("xdp")
 int http_filter(struct xdp_md *ctx) {
@@ -97,15 +111,13 @@ int http_filter(struct xdp_md *ctx) {
 	unsigned int data_offset = 0;
 	bpf_xdp_load_bytes(ctx, tcp_offset, &data_offset, 1);
 	u32 tcp_hl = ((data_offset >> 4) & 0xF) * 4;
-
-
 	payload_offset = ETH_LEN + ip_hl + tcp_hl;
 	payload_length = (u64)(data_end - data) - payload_offset;
-
 	if (payload_length <= 0){
 		return XDP_PASS;
 	}
 	struct Leaf *commCheck = bpf_map_lookup_elem(&sessions, &key);
+	long status = 0;
 	if (commCheck == NULL){
 		leaf.prv_comm = commTime;
 		leaf.first_comm = commTime;
@@ -176,7 +188,7 @@ int http_filter(struct xdp_md *ctx) {
 						if (!bpf_strncmp(&payload->msg[i+17], 2, "\r\n"))
 							break;
 						bpf_printk("each elem: %ld", payload->msg[i+17]);
-						bpf_map_push_elem(&queue, &payload->msg[i+17], BPF_ANY);
+						bpf_map_push_elem(&stack, &payload->msg[i+17], BPF_ANY);
 						size++;
 					}
 					continue;
@@ -193,7 +205,7 @@ int http_filter(struct xdp_md *ctx) {
 			int decExp = 1;
 			int cLen = 0;
 			bpf_for(z, 0, size){
-				bpf_map_pop_elem(&queue, valAddr);
+				bpf_map_pop_elem(&stack, valAddr);
 				bpf_probe_read_kernel(&value, 1, valAddr);
 				cLen += (value-48)*decExp;
 				decExp *= 10;

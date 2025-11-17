@@ -17,9 +17,13 @@
 
 #define warn(...) fprintf(stderr, __VA_ARGS__)
 
+
+static int ifindex = 0;
+
 static struct env env = {
 	.connout = 5,
 	.idleout = 5,
+	.interface = "lo",
 };
 
 //Taken from: https://github.com/iovisor/bcc/blob/b63d7e38e8a0f6339fbd57f3a1ae7297e1993d92/libbpf-tools/tcptracer.c#L58
@@ -43,8 +47,9 @@ static int get_uint(const char *arg, unsigned int *ret,
 }
 
 static const struct argp_option opts[] = {
-	{"conntime", 'd', "<seconds>", 0, "Set threshold for the length of time a connection can remain active before being verified.\n", 0},
-	{"idletime", 'i', "<seconds>", 0, "Set threshold for the length of time between current and last packet sent by client for it to be verified.\n", 0},
+	{"conntime", 'c', "<seconds>", 0, "Set threshold for the length of time a connection can remain active before being verified.\n", 0},
+	{"idletime", 'v', "<seconds>", 0, "Set threshold for the length of time between current and last packet sent by client for it to be verified.\n", 0},
+	{"interface", 'i', "<interface>", 0, "Set network interface to which the filter will attach", 0},
 	{NULL, 'h', NULL, OPTION_HIDDEN, "Present this help menu.\n", 0},
 	{},
 };
@@ -60,20 +65,25 @@ static error_t parser_arg(int key, char *arg, struct argp_state *state){
 	case 'h':
 		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
 		break;
-	case 'd':
-		err = get_uint(arg, &env.connout, 0, 3);
+	case 'c':
+		err = get_uint(arg, &env.connout, 0, 1000);
+		if (err) {
+			fprintf(stderr, "999 seconds is the max that can be set");
+			argp_usage(state);
+		}
+		break;
+	case 'v':
+		err = get_uint(arg, &env.idleout, 0, 1000);
 		if (err) {
 			fprintf(stderr, "999 seconds is the max that can be set");
 			argp_usage(state);
 		}
 		break;
 	case 'i':
-		err = get_uint(arg, &env.idleout, 0, 3);
-		if (err) {
-			fprintf(stderr, "999 seconds is the max that can be set");
-			argp_usage(state);
+		int read = snprintf(env.interface, sizeof(env.interface), "%s", arg);
+		if (read <= 0){
+			fprintf(stderr, "Error reading interface");
 		}
-		break;
 	default:
 		return ARGP_ERR_UNKNOWN;
 	}
@@ -99,6 +109,23 @@ void bump_memlock_rlimit(void)
 	}
 }
 
+static int write_inf(struct user_ring_buffer *ringbuf){
+	int i = 0;
+	struct env *entry;
+
+	entry = user_ring_buffer__reserve(ringbuf, sizeof(*entry));
+	if (!entry){
+		int err = -errno;
+		return err;
+	}
+
+	entry->connout = env.connout;
+	entry->idleout = env.idleout;
+
+	user_ring_buffer__submit(ringbuf, entry);
+	return 0;
+}
+
 static volatile bool exiting = false;
 
 static void sig_handler(int sig)
@@ -111,9 +138,6 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	return 0;
 }
-
-const char interface[] = "lo";
-static int ifindex = 0;
 
 static void cleanup_iface() {
   __u32 curr_prog_id;
@@ -139,14 +163,14 @@ int main(int argc, char **argv){
 	libbpf_set_print(libbpf_print_fn);
 
 	int argErr;
-	argErr = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+	argErr = argp_parse(&argp, argc, argv, 0, NULL, &env);
 	if (argErr)
 		return argErr;
 
 	signal(SIGINT, sig_handler);
 	signal(SIGTERM, sig_handler);
 
-	ifindex = if_nametoindex(interface);
+	ifindex = if_nametoindex(env.interface);
 	if (!ifindex){
 		fprintf(stderr, "Error retrieving interface index");
 		return 1;
@@ -184,6 +208,8 @@ int main(int argc, char **argv){
 		goto cleanup;
 	}
 
+	struct user_ring_buffer *user_ringbuf = user_ring_buffer__new(bpf_map__fd(skel->maps.timeout), NULL);
+	write_inf(user_ringbuf);
 
 	while (!exiting) {
 		err = ring_buffer__poll(rb, 100);
@@ -200,6 +226,7 @@ int main(int argc, char **argv){
 cleanup:
 	cleanup_iface();
 	ring_buffer__free(rb);
+	user_ring_buffer__free(user_ringbuf);
 	slither_bpf__destroy(skel);
 
 	return err < 0 ? -err : 0;

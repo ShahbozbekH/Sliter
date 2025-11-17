@@ -11,6 +11,7 @@ struct RingBuff{
 struct env{
         unsigned int connout;
         unsigned int idleout;
+	char interface[16];
 };
 
 #endif
