@@ -13,6 +13,32 @@ developed by Dau Anh Dung and Yasuhiro Nakamura. (https://www.researchgate.net/p
   -?, --help                 Give this help list
       --usage                Give a short usage message 
 ```
+
 The name is a portmanteau of Slow and Filter, made to sound like slither. 
 
-It is not yet functional, but a full guide will be posted on shahboz.wiki when it is ready. 
+##To Build
+Requirements:
+-Your kernel must be compiled with BTF enabled.
+-libbpf and all its dependencies must be installed on the system.
+-Clang 13+
+-GCC
+-bpftool
+
+Clone:
+```
+git clone https://github.com/ShahbozbekH/Slither.git
+```
+
+Run:
+```
+sudo make 
+```
+Note: Must be run with sudo
+```
+./Slither
+```
+
+##Blog Post
+
+A blog post documenting my experience with CO-RE programming can be found on my website: [shahboz.wiki](https://shahboz.wiki/)
+

@@ -110,7 +110,6 @@ void bump_memlock_rlimit(void)
 }
 
 static int write_inf(struct user_ring_buffer *ringbuf){
-	int i = 0;
 	struct env *entry;
 
 	entry = user_ring_buffer__reserve(ringbuf, sizeof(*entry));
@@ -144,7 +143,7 @@ static void cleanup_iface() {
   if (!bpf_xdp_query_id(ifindex, 0, &curr_prog_id)) {
     if (curr_prog_id) {
       bpf_xdp_detach(ifindex, 0, NULL);
-      printf("Detached XDP program from interface");
+      printf("\nDetached XDP program from interface\n");
     }
   }
 }
