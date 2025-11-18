@@ -47,45 +47,46 @@ static int get_uint(const char *arg, unsigned int *ret,
 }
 
 static const struct argp_option opts[] = {
-	{"conntime", 'c', "<seconds>", 0, "Set threshold for the length of time a connection can remain active before being verified.\n", 0},
-	{"idletime", 'v', "<seconds>", 0, "Set threshold for the length of time between current and last packet sent by client for it to be verified.\n", 0},
-	{"interface", 'i', "<interface>", 0, "Set network interface to which the filter will attach", 0},
+	{"conntime", 'c', "<seconds>", 0, "Set threshold for the length of time a connection can remain active before being verified\n", 0},
+	{"idletime", 'v', "<seconds>", 0, "Set threshold for the length of time between current and last packet sent by client for it to be verified\n", 0},
+	{"interface", 'i', "<name>", 0, "Set the network interface to attach to\n", 0},
 	{NULL, 'h', NULL, OPTION_HIDDEN, "Present this help menu.\n", 0},
 	{},
 };
 
 static const char argp_program_doc[] =
 	"\nSlither\n"
-	"An implementation of an HTTP packet verification method for SLOW attacks developed by Dau Anh Dung and Yasuhiro Nakamura.\n";
+	"An eBPF implementation of an HTTP packet verification method for SLOW attacks developed by Dau Anh Dung and Yasuhiro Nakamura.\n";
 
 
 static error_t parser_arg(int key, char *arg, struct argp_state *state){
 	int err;
 	switch (key){
-	case 'h':
-		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
-		break;
-	case 'c':
-		err = get_uint(arg, &env.connout, 0, 1000);
-		if (err) {
-			fprintf(stderr, "999 seconds is the max that can be set");
-			argp_usage(state);
-		}
-		break;
-	case 'v':
-		err = get_uint(arg, &env.idleout, 0, 1000);
-		if (err) {
-			fprintf(stderr, "999 seconds is the max that can be set");
-			argp_usage(state);
-		}
-		break;
-	case 'i':
-		int read = snprintf(env.interface, sizeof(env.interface), "%s", arg);
-		if (read <= 0){
-			fprintf(stderr, "Error reading interface");
-		}
-	default:
-		return ARGP_ERR_UNKNOWN;
+		case 'h':
+			argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
+			break;
+		case 'c':
+			err = get_uint(arg, &env.connout, 0, 1000);
+			if (err) {
+				fprintf(stderr, "999 seconds is the max that can be set");
+				argp_usage(state);
+			}
+			break;
+		case 'v':
+			err = get_uint(arg, &env.idleout, 0, 1000);
+			if (err) {
+				fprintf(stderr, "999 seconds is the max that can be set");
+				argp_usage(state);
+			}
+			break;
+		case 'i':
+			int read = snprintf(env.interface, sizeof(arg), "%s", arg);
+			if (read <= 0){
+				fprintf(stderr, "Error reading interface");
+			}
+			break;
+		default:
+			return ARGP_ERR_UNKNOWN;
 	}
 	return 0;
 }

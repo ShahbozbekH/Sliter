@@ -1,20 +1,20 @@
 # Slither
 ```
 Slither
-An implementation of an HTTP packet verification method for SLOW attacks
+An eBPF implementation of an HTTP packet verification method for SLOW attacks
 developed by Dau Anh Dung and Yasuhiro Nakamura.
 
   -c, --conntime=<seconds>   Set threshold for the length of time a connection
-                             can remain active before being verified.
+                             can remain active before being verified
 
-  -i, --interface=<interface>   Set network interface to which the filter will
-                             attach
+  -i, --interface=<name>     Set the network interface to attach to
+
   -v, --idletime=<seconds>   Set threshold for the length of time between
                              current and last packet sent by client for it to
-                             be verified.
+                             be verified
 
   -?, --help                 Give this help list
-      --usage                Give a short usage message 
+      --usage                Give a short usage message
 ```
 
 The name is a portmanteau of Slow and Filter, made to sound like slither. 
