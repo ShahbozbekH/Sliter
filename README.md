@@ -22,7 +22,7 @@ Requirements:\
 -libbpf and all its dependencies must be installed on the system.\
 -Clang 13+\
 -GCC\
--bpftool\
+-bpftool
 
 Clone:
 ```
