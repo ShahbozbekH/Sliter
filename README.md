@@ -1,12 +1,15 @@
 # Slither
 ```
+Slither
 An implementation of an HTTP packet verification method for SLOW attacks
-developed by Dau Anh Dung and Yasuhiro Nakamura. (https://www.researchgate.net/publication/377321387_Verification_of_State_Based_Slow_HTTP_DDoS_Prevention_Method)
+developed by Dau Anh Dung and Yasuhiro Nakamura.
 
-  -d, --conntime=<seconds>   Set threshold for the length of time a connection
+  -c, --conntime=<seconds>   Set threshold for the length of time a connection
                              can remain active before being verified.
 
-  -i, --idletime=<seconds>   Set threshold for the length of time between
+  -i, --interface=<interface>   Set network interface to which the filter will
+                             attach
+  -v, --idletime=<seconds>   Set threshold for the length of time between
                              current and last packet sent by client for it to
                              be verified.
 
