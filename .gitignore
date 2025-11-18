@@ -1,4 +1,3 @@
-vmlinux*
 *.o
 *.skel.h
 slither

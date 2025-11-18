@@ -16,7 +16,7 @@ developed by Dau Anh Dung and Yasuhiro Nakamura. (https://www.researchgate.net/p
 
 The name is a portmanteau of Slow and Filter, made to sound like slither. 
 
-##To Build
+## To Build
 Requirements:
 -Your kernel must be compiled with BTF enabled.
 -libbpf and all its dependencies must be installed on the system.
@@ -38,7 +38,7 @@ Note: Must be run with sudo
 ./Slither
 ```
 
-##Blog Post
+## Blog Post
 
 A blog post documenting my experience with CO-RE programming can be found on my website: [shahboz.wiki](https://shahboz.wiki/)
 
