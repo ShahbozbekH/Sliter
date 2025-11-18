@@ -20,11 +20,11 @@ developed by Dau Anh Dung and Yasuhiro Nakamura.
 The name is a portmanteau of Slow and Filter, made to sound like slither. 
 
 ## To Build
-Requirements:
--Your kernel must be compiled with BTF enabled.
--libbpf and all its dependencies must be installed on the system.
--Clang 13+
--GCC
+Requirements:\
+-Your kernel must be compiled with BTF enabled.\
+-libbpf and all its dependencies must be installed on the system.\
+-Clang 13+\
+-GCC\
 -bpftool
 
 Clone:
