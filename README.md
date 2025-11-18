@@ -35,7 +35,7 @@ sudo make
 ```
 Note: Must be run with sudo
 ```
-./Slither
+sudo ./slither
 ```
 
 ## Blog Post
